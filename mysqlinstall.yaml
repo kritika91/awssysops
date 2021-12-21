@@ -1,0 +1,17 @@
+---
+- hosts: tag_Name_db_server
+  connection: ssh
+  become: true
+  tasks:
+  - name: Install the MySQL packages
+    apt: name={{ item }} state=present update_cache=yes
+    with_items:
+      - mysql-server
+      - mysql-client
+      - python-mysqldb
+
+  - name: Start the MySQL service
+    service:
+      name: mysql
+      state: started
+      enabled: true

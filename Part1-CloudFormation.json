@@ -1,0 +1,184 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+        "Description": "",
+        "Metadata": {
+    
+        },
+        "Parameters": {
+            "iplist": {
+                "Type": "CommaDelimitedList",
+                "Default": "10.0.0.0/16, 10.0.1.0/24, 10.0.2.0/24"
+            }
+        },
+        "Mappings": {
+    
+        },
+        "Conditions": {
+    
+        },
+        "Resources": {
+    
+            "VPC": {
+              "Type": "AWS::EC2::VPC",
+              "Properties": {
+                "CidrBlock": {
+                    "Fn::Select" : [ 0, {"Ref": "iplist"}]
+                },
+                "EnableDnsSupport" : "true",
+                "EnableDnsHostnames" : "true",
+                "Tags": [{"Key": "Name", "Value": "VPC1"}]
+              }
+            },
+            
+            "publicsubnet": {
+              "Type": "AWS::EC2::Subnet",
+              "Properties": {
+                "AvailabilityZone": {"Fn::Select" : [ 0, { "Fn::GetAZs" : { "Ref" : "AWS::Region" } }]},
+                "VpcId": { "Ref": "VPC" },
+                "CidrBlock": {
+                    "Fn::Select" : [ 1, {"Ref": "iplist"}]
+                },
+                "Tags": [{"Key": "Name", "Value": "publicsubnet"}]
+              }
+            },
+            
+            "privatesubnet": {
+              "Type": "AWS::EC2::Subnet",
+              "Properties": {
+                "AvailabilityZone": {"Fn::Select" : [ 1, { "Fn::GetAZs" : { "Ref" : "AWS::Region" } }]},
+                "VpcId": { "Ref": "VPC" },
+                "CidrBlock": {
+                    "Fn::Select" : [ 2, {"Ref": "iplist"}]
+                },
+                "Tags": [{"Key": "Name", "Value": "privatesubnet"}]
+              }
+            },
+            
+            "igw": {
+              "Type": "AWS::EC2::InternetGateway",
+              "Properties": {
+                "Tags": [{"Key": "Name", "Value": "igw-VPC"}]
+              }
+            },
+            
+            "AttachGateway": {
+              "Type": "AWS::EC2::VPCGatewayAttachment",
+              "Properties": {
+                "VpcId": { "Ref": "VPC" },
+                "InternetGatewayId": { "Ref": "igw" }
+              }
+            },
+    
+            "publicroutetable": {
+                "Type": "AWS::EC2::RouteTable",
+                "Properties": {
+                  "VpcId": { "Ref": "VPC" },
+                  "Tags": [{"Key": "Name", "Value": "publicroutetable"}]
+                }
+            },
+            
+            "publicroute": {
+              "Type": "AWS::EC2::Route",
+              "DependsOn": "AttachGateway",
+              "Properties": {
+                "RouteTableId": { "Ref": "publicroutetable" },
+                "DestinationCidrBlock": "0.0.0.0/0",
+                "GatewayId": { "Ref": "igw" }
+              }
+            },
+    
+            "PublicRouteTableAssociation": {
+              "Type": "AWS::EC2::SubnetRouteTableAssociation",
+              "Properties": {
+                "SubnetId": { "Ref": "publicsubnet" },
+                "RouteTableId": { "Ref": "publicroutetable" }
+              }
+            },
+            
+            
+            "NATGatewayEIP": {
+              "Type": "AWS::EC2::EIP",
+              "DependsOn": "AttachGateway",
+              "Properties": {
+                "Domain": "VPC"
+              }
+            },
+            
+            "NATGateway" : {
+              "Type" : "AWS::EC2::NatGateway",
+              "Properties" : {
+                 "AllocationId" : { "Fn::GetAtt" : ["NATGatewayEIP", "AllocationId"]},
+                 "SubnetId" : { "Ref" : "publicsubnet"},
+                 "Tags" : [ {"Key" : "Name", "Value" : "ngw" } ]
+                }
+           },
+            
+            "privateroutetable": {
+                "Type": "AWS::EC2::RouteTable",
+                "Properties": {
+                  "VpcId": { "Ref": "VPC" },
+                  "Tags": [{"Key": "Name", "Value": "privateroutetable"}]
+                }
+            },
+
+            "privateroute": {
+              "Type": "AWS::EC2::Route",
+              "Properties": {
+                "RouteTableId": { "Ref": "privateroutetable" },
+                "DestinationCidrBlock": "0.0.0.0/0",
+                "NatGatewayId": { "Ref": "NATGateway" }
+              }
+            },
+            
+            "routeTableAssocName": {
+              "Type": "AWS::EC2::SubnetRouteTableAssociation",
+              "Properties": {
+                "SubnetId": { "Ref": "privatesubnet" },
+                "RouteTableId": { "Ref": "privateroutetable" }
+              }
+            },
+            "vpc1sg" : {
+              "Type" : "AWS::EC2::SecurityGroup",
+                "Properties" : {
+                  "GroupDescription" : "Enable SSH access via port 22 and port 80",
+                  "SecurityGroupIngress" : [ 
+                    {"IpProtocol" : "tcp", "FromPort" : "80", "ToPort" : "80", "CidrIp" : "0.0.0.0/0"},
+                    {"IpProtocol" : "tcp", "FromPort" : "443", "ToPort" : "443", "CidrIp" : "0.0.0.0/0"},
+                    {"IpProtocol" : "tcp", "FromPort" : "22", "ToPort" : "22", "CidrIp" : "0.0.0.0/0"}          
+                  ],
+                  "SecurityGroupEgress" : [ 
+                    {"IpProtocol" : "-1", "FromPort" : "0", "ToPort" : "0", "CidrIp" : "0.0.0.0/0"}
+                  ],
+                  "VpcId" : { "Ref": "VPC" },
+                  "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "vpc1-sg"
+                    }
+                  ]
+                }
+            }
+        },
+        "Outputs": {
+            "VPCId": {
+                "Description": "VPC ID",
+                "Value": { "Ref": "VPC" },
+                "Export": { "Name" : {"Fn::Sub": "${AWS::StackName}-VPCId"}}
+            },
+            "PublicSubnetID": {
+                "Description": "Public Subnet ID",
+                "Value": { "Ref": "publicsubnet" },
+                "Export": { "Name" : {"Fn::Sub": "${AWS::StackName}-PublicSubnetID"}}
+            },
+            "PrivateSubnetID": {
+              "Description": "Private Subnet ID",
+              "Value": { "Ref": "privatesubnet" },
+              "Export": { "Name" : {"Fn::Sub": "${AWS::StackName}-PrivateSubnetID"}}
+            },
+            "SecurityGroupID": {
+              "Description": "Security Group ID",
+              "Value": { "Ref": "vpc1sg" },
+              "Export": { "Name" : {"Fn::Sub": "${AWS::StackName}-SecurityGroupID"}}
+            }
+        }
+    }
